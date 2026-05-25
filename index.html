@@ -284,41 +284,43 @@ function renderLogin() {
 
 // ── 렌더: 패스워드 변경 ───────────────────────────────────────────────────────
 function renderChangePw() {
+  const inp = 'display:block;width:100%;border:1px solid #d1d5db;border-radius:0.5rem;padding:0.55rem 0.75rem;font-size:0.9rem;outline:none;box-sizing:border-box;';
+  const lbl = 'display:block;font-size:0.875rem;font-weight:500;color:#374151;margin-bottom:0.35rem;';
   appEl().innerHTML = `
-  <div class="min-h-screen flex items-center justify-center px-4">
-    <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm">
-      <div class="text-center mb-6">
-        <div class="text-4xl mb-3">🔑</div>
-        <h2 class="text-xl font-bold text-gray-800">패스워드 변경</h2>
-        <p class="text-sm text-gray-400 mt-1">최초 로그인입니다. 새 패스워드를 설정해주세요.</p>
+  <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f9fafb;padding:1rem;">
+    <div style="background:#fff;border-radius:1.25rem;box-shadow:0 4px 20px rgba(0,0,0,0.1);padding:2rem;width:100%;max-width:360px;">
+      <div style="text-align:center;margin-bottom:1.75rem;">
+        <div style="font-size:2.5rem;line-height:1;margin-bottom:0.5rem;">🔑</div>
+        <h2 style="font-size:1.25rem;font-weight:700;color:#1f2937;margin:0 0 0.25rem;">패스워드 변경</h2>
+        <p style="font-size:0.8rem;color:#9ca3af;margin:0;">최초 로그인입니다. 새 패스워드를 설정해주세요.</p>
       </div>
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">새 패스워드</label>
-          <input id="pw1" type="password" maxlength="8" placeholder="8자리 이하 영문·숫자"
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">패스워드 확인</label>
-          <input id="pw2" type="password" maxlength="8" placeholder="패스워드 재입력"
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-        </div>
-        <p id="pw-err" class="text-red-500 text-sm hidden"></p>
-        <button id="btn-cpw"
-          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition">
-          변경 후 평가 시작
-        </button>
+      <div style="margin-bottom:1rem;">
+        <label for="pw1" style="${lbl}">새 패스워드</label>
+        <input id="pw1" type="password" maxlength="8" placeholder="8자리 이하 영문·숫자" style="${inp}" autocomplete="new-password" />
       </div>
+      <div style="margin-bottom:1rem;">
+        <label for="pw2" style="${lbl}">패스워드 확인</label>
+        <input id="pw2" type="password" maxlength="8" placeholder="패스워드 재입력" style="${inp}" autocomplete="new-password" />
+      </div>
+      <div id="pw-err" style="display:none;color:#ef4444;font-size:0.8rem;background:#fef2f2;border-radius:0.5rem;padding:0.5rem 0.75rem;margin-bottom:0.75rem;"></div>
+      <button id="btn-cpw" type="button"
+        style="display:block;width:100%;background:#2563eb;color:#fff;font-weight:600;padding:0.65rem;border:none;border-radius:0.5rem;font-size:0.95rem;cursor:pointer;">
+        변경 후 평가 시작
+      </button>
     </div>
   </div>`;
   $('btn-cpw').onclick = () => {
     const p1 = $('pw1').value.trim(), p2 = $('pw2').value.trim();
     const errEl = $('pw-err');
-    if (!p1) { errEl.textContent = '패스워드를 입력해주세요.'; errEl.classList.remove('hidden'); return; }
-    if (p1 !== p2) { errEl.textContent = '패스워드가 일치하지 않습니다.'; errEl.classList.remove('hidden'); return; }
-    errEl.classList.add('hidden');
+    const showErr = msg => { errEl.textContent = msg; errEl.style.display = 'block'; };
+    if (!p1) { showErr('패스워드를 입력해주세요.'); return; }
+    if (!/^[a-zA-Z0-9]{1,8}$/.test(p1)) { showErr('영문·숫자 8자리 이하로 입력해주세요.'); return; }
+    if (p1 !== p2) { showErr('패스워드가 일치하지 않습니다.'); return; }
+    errEl.style.display = 'none';
     changePw(p1);
   };
+  $('pw1').addEventListener('keydown', e => { if (e.key === 'Enter') $('pw2').focus(); });
+  $('pw2').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-cpw').click(); });
 }
 
 // ── 렌더: 학생 평가 화면 ──────────────────────────────────────────────────────
@@ -444,8 +446,9 @@ function refreshScoreTotals() {
   const partMax = S.students[uid]?.participation_max || 0;
   const pSum = presSum(), rSum = partSum();
   const presOk = pSum === PRES_MAX, partOk = rSum === partMax;
-  const isSubmitted = (S.students[uid]?.submission_count || 0) >= 1;
-  const canSubmit = presOk && partOk;
+  const subCnt2 = S.students[uid]?.submission_count || 0;
+  const isSubmitted = subCnt2 >= 1;
+  const canSubmit = presOk && partOk && subCnt2 < 2;
 
   const presW = Math.min(100, (pSum / PRES_MAX) * 100);
   const partW = partMax > 0 ? Math.min(100, (rSum / partMax) * 100) : (rSum === 0 ? 100 : 0);
@@ -468,31 +471,61 @@ function refreshScoreTotals() {
 }
 
 function showSubmitModal(isResub) {
+  document.getElementById('submit-modal')?.remove();
   const uid = S.user.id;
   const partMax = S.students[uid]?.participation_max || 0;
   const pSum = presSum(), rSum = partSum();
-  const html = `
-  <div id="submit-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
-    <div class="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
-      <h3 class="text-lg font-bold text-gray-800 mb-2">${isResub ? '재제출' : '최종 제출'} 확인</h3>
-      <p class="text-sm text-gray-600 mb-4">
-        ${isResub
-          ? '재제출 시 이전 평가가 덮어씌워집니다. 재제출은 1회만 가능하며 이후 수정 불가합니다.'
-          : '제출 후 1회에 한해 재제출이 가능합니다. 계속하시겠습니까?'}
-      </p>
-      <div class="bg-gray-50 rounded-lg p-3 mb-4 text-sm space-y-1">
-        <div class="flex justify-between"><span class="text-gray-500">기말발표 점수 배분</span><span class="font-medium">${pSum}점 (한도 ${PRES_MAX}점)</span></div>
-        <div class="flex justify-between"><span class="text-gray-500">참여 점수 배분</span><span class="font-medium">${rSum}점 (한도 ${partMax}점)</span></div>
-      </div>
-      <div class="flex gap-3">
-        <button id="modal-cancel" class="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 text-sm">취소</button>
-        <button id="modal-ok" class="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm">${isResub ? '재제출' : '제출'}</button>
-      </div>
+
+  const overlay = document.createElement('div');
+  overlay.id = 'submit-modal';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:1rem;';
+
+  const card = document.createElement('div');
+  card.style.cssText = 'background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);padding:1.5rem;max-width:360px;width:100%;';
+
+  const title = document.createElement('h3');
+  title.style.cssText = 'font-size:1.1rem;font-weight:700;color:#1f2937;margin:0 0 0.5rem;';
+  title.textContent = (isResub ? '재제출' : '최종 제출') + ' 확인';
+
+  const msg = document.createElement('p');
+  msg.style.cssText = 'font-size:0.875rem;color:#4b5563;margin:0 0 1rem;line-height:1.5;';
+  msg.textContent = isResub
+    ? '재제출 시 이전 평가가 덮어씌워집니다. 재제출은 1회만 가능하며 이후 수정 불가합니다.'
+    : '제출 후 1회에 한해 재제출이 가능합니다. 계속하시겠습니까?';
+
+  const summary = document.createElement('div');
+  summary.style.cssText = 'background:#f9fafb;border-radius:8px;padding:0.75rem;margin-bottom:1rem;font-size:0.875rem;';
+  summary.innerHTML = `
+    <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem;">
+      <span style="color:#6b7280;">기말발표 점수 배분</span>
+      <span style="font-weight:600;">${pSum}점 (한도 ${PRES_MAX}점)</span>
     </div>
-  </div>`;
-  document.body.insertAdjacentHTML('beforeend', html);
-  $('modal-cancel').onclick = () => $('submit-modal').remove();
-  $('modal-ok').onclick = () => { $('submit-modal').remove(); submitEval(isResub); };
+    <div style="display:flex;justify-content:space-between;">
+      <span style="color:#6b7280;">참여 점수 배분</span>
+      <span style="font-weight:600;">${rSum}점 (한도 ${partMax}점)</span>
+    </div>`;
+
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:0.75rem;';
+
+  const btnCancel = document.createElement('button');
+  btnCancel.style.cssText = 'flex:1;padding:0.6rem 0;border:1px solid #d1d5db;border-radius:8px;background:#fff;color:#374151;font-size:0.875rem;cursor:pointer;';
+  btnCancel.textContent = '취소';
+  btnCancel.onclick = () => overlay.remove();
+
+  const btnOk = document.createElement('button');
+  btnOk.style.cssText = 'flex:1;padding:0.6rem 0;border:none;border-radius:8px;background:#2563eb;color:#fff;font-size:0.875rem;font-weight:600;cursor:pointer;';
+  btnOk.textContent = isResub ? '재제출' : '제출';
+  btnOk.onclick = () => { overlay.remove(); submitEval(isResub); };
+
+  btnRow.appendChild(btnCancel);
+  btnRow.appendChild(btnOk);
+  card.appendChild(title);
+  card.appendChild(msg);
+  card.appendChild(summary);
+  card.appendChild(btnRow);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
 }
 
 // ── 렌더: 관리자 대시보드 ────────────────────────────────────────────────────
@@ -704,51 +737,64 @@ function showAdminModal() {
   document.getElementById('admin-modal')?.remove();
   const { type, sid } = S.modal;
   const student = studentById(sid);
-  let body = '';
+
+  const overlay = document.createElement('div');
+  overlay.id = 'admin-modal';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:1rem;';
+
+  const card = document.createElement('div');
+  card.style.cssText = 'background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);padding:1.5rem;max-width:480px;width:100%;max-height:80vh;overflow-y:auto;';
 
   if (type === 'received') {
     const list = receivedBy(sid);
     const { pres, part, total } = totalReceived(sid);
     const rows = list.length
-      ? list.map(r => `<tr class="border-t border-gray-50">
-          <td class="py-2 px-4">${r.evaluatorName}</td>
-          <td class="py-2 px-4 text-center">${r.presentation_score}</td>
-          <td class="py-2 px-4 text-center">${r.participation_score}</td>
+      ? list.map(r => `<tr style="border-top:1px solid #f9fafb;">
+          <td style="padding:0.5rem 1rem;">${r.evaluatorName}</td>
+          <td style="padding:0.5rem 1rem;text-align:center;">${r.presentation_score}</td>
+          <td style="padding:0.5rem 1rem;text-align:center;">${r.participation_score}</td>
         </tr>`).join('')
-      : `<tr><td colspan="3" class="py-4 text-center text-gray-400 text-sm">아직 평가한 학생이 없습니다</td></tr>`;
-    body = `
-    <h3 class="font-bold text-gray-800 mb-1">${student?.name} — 받은 점수 상세</h3>
-    <p class="text-xs text-gray-400 mb-3">합계: 기말발표 ${pres}점 + 참여 ${part}점 = <strong class="text-blue-700">${total}점</strong></p>
-    <table class="w-full text-sm"><thead><tr class="bg-gray-50 text-gray-500 text-xs">
-      <th class="py-2 px-4 text-left">평가자</th><th class="py-2 px-4 text-center">기말발표</th><th class="py-2 px-4 text-center">참여점수</th>
-    </tr></thead><tbody>${rows}</tbody></table>`;
+      : `<tr><td colspan="3" style="padding:1rem;text-align:center;color:#9ca3af;font-size:0.875rem;">아직 평가한 학생이 없습니다</td></tr>`;
+    card.innerHTML = `
+    <h3 style="font-weight:700;color:#1f2937;margin:0 0 0.25rem;">${student?.name} — 받은 점수 상세</h3>
+    <p style="font-size:0.75rem;color:#9ca3af;margin:0 0 0.75rem;">합계: 기말발표 ${pres}점 + 참여 ${part}점 = <strong style="color:#1d4ed8;">${total}점</strong></p>
+    <table style="width:100%;font-size:0.875rem;border-collapse:collapse;">
+      <thead><tr style="background:#f9fafb;color:#6b7280;font-size:0.75rem;">
+        <th style="padding:0.5rem 1rem;text-align:left;">평가자</th>
+        <th style="padding:0.5rem 1rem;text-align:center;">기말발표</th>
+        <th style="padding:0.5rem 1rem;text-align:center;">참여점수</th>
+      </tr></thead><tbody>${rows}</tbody>
+    </table>`;
   } else {
     const list = givenBy(sid);
     const rows = list.length
-      ? list.map(g => `<tr class="border-t border-gray-50">
-          <td class="py-2 px-4">${g.targetName}</td>
-          <td class="py-2 px-4 text-center">${g.presentation_score}</td>
-          <td class="py-2 px-4 text-center">${g.participation_score}</td>
+      ? list.map(g => `<tr style="border-top:1px solid #f9fafb;">
+          <td style="padding:0.5rem 1rem;">${g.targetName}</td>
+          <td style="padding:0.5rem 1rem;text-align:center;">${g.presentation_score}</td>
+          <td style="padding:0.5rem 1rem;text-align:center;">${g.participation_score}</td>
         </tr>`).join('')
-      : `<tr><td colspan="3" class="py-4 text-center text-gray-400 text-sm">제출한 평가가 없습니다</td></tr>`;
-    body = `
-    <h3 class="font-bold text-gray-800 mb-1">${student?.name} — 부여한 점수 상세</h3>
-    <p class="text-xs text-gray-400 mb-3">13명에게 부여한 점수 내역</p>
-    <table class="w-full text-sm"><thead><tr class="bg-gray-50 text-gray-500 text-xs">
-      <th class="py-2 px-4 text-left">피평가자</th><th class="py-2 px-4 text-center">기말발표</th><th class="py-2 px-4 text-center">참여점수</th>
-    </tr></thead><tbody>${rows}</tbody></table>`;
+      : `<tr><td colspan="3" style="padding:1rem;text-align:center;color:#9ca3af;font-size:0.875rem;">제출한 평가가 없습니다</td></tr>`;
+    card.innerHTML = `
+    <h3 style="font-weight:700;color:#1f2937;margin:0 0 0.25rem;">${student?.name} — 부여한 점수 상세</h3>
+    <p style="font-size:0.75rem;color:#9ca3af;margin:0 0 0.75rem;">13명에게 부여한 점수 내역</p>
+    <table style="width:100%;font-size:0.875rem;border-collapse:collapse;">
+      <thead><tr style="background:#f9fafb;color:#6b7280;font-size:0.75rem;">
+        <th style="padding:0.5rem 1rem;text-align:left;">피평가자</th>
+        <th style="padding:0.5rem 1rem;text-align:center;">기말발표</th>
+        <th style="padding:0.5rem 1rem;text-align:center;">참여점수</th>
+      </tr></thead><tbody>${rows}</tbody>
+    </table>`;
   }
 
-  document.body.insertAdjacentHTML('beforeend', `
-  <div id="admin-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
-    <div class="bg-white rounded-2xl shadow-xl p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto">
-      ${body}
-      <button id="modal-close" class="mt-4 w-full py-2 border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50 text-sm">닫기</button>
-    </div>
-  </div>`);
+  const btnClose = document.createElement('button');
+  btnClose.style.cssText = 'margin-top:1rem;width:100%;padding:0.5rem;border:1px solid #e5e7eb;border-radius:8px;background:#fff;color:#6b7280;font-size:0.875rem;cursor:pointer;';
+  btnClose.textContent = '닫기';
+  btnClose.onclick = () => { overlay.remove(); S.modal = null; };
 
-  $('modal-close').onclick = () => { $('admin-modal').remove(); S.modal = null; };
-  $('admin-modal').onclick = e => { if (e.target === $('admin-modal')) { $('admin-modal').remove(); S.modal = null; } };
+  card.appendChild(btnClose);
+  overlay.appendChild(card);
+  overlay.onclick = e => { if (e.target === overlay) { overlay.remove(); S.modal = null; } };
+  document.body.appendChild(overlay);
 }
 
 // ── 메인 렌더 ─────────────────────────────────────────────────────────────────
