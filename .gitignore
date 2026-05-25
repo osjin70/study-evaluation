@@ -1,0 +1,14 @@
+# 민감 정보
+.env
+.env.*
+*.env
+
+# 테스트 파일
+firebase-test.html
+
+# Claude 설정
+.claude/
+
+# Windows
+Thumbs.db
+desktop.ini
