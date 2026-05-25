@@ -217,9 +217,9 @@ const $ = id => document.getElementById(id);
 const appEl = () => document.getElementById('app');
 
 function scoreColor(cur, target) {
-  if (cur > target) return 'text-red-600 font-bold';   // 초과: 빨간색
-  if (cur > 0)      return 'text-green-600 font-bold'; // 1점 이상 이내: 초록색
-  return 'text-gray-400 font-bold';                    // 0점: 회색
+  if (cur === target) return 'text-green-600 font-bold'; // 정확히 일치: 초록
+  if (cur > target)   return 'text-red-600 font-bold';   // 초과: 빨간
+  return 'text-orange-500 font-bold';                    // 부족: 주황
 }
 
 function badge(ok, labelOk, labelNo) {
@@ -331,11 +331,11 @@ function renderEval() {
   const isSubmitted = subCnt >= 1;
   const partMax = S.students[uid]?.participation_max || 0;
   const pSum = presSum(), rSum = partSum();
-  const presOk = pSum <= PRES_MAX, partOk = rSum <= partMax;
+  const presOk = pSum === PRES_MAX, partOk = rSum === partMax;
   const canSubmit = presOk && partOk && !isFinished;
 
   const presW = Math.min(100, (pSum / PRES_MAX) * 100);
-  const partW = partMax > 0 ? Math.min(100, (rSum / partMax) * 100) : 100;
+  const partW = partMax > 0 ? Math.min(100, (rSum / partMax) * 100) : (rSum === 0 ? 100 : 0);
 
   const statusBanner = isFinished
     ? `<div class="mt-3 bg-gray-100 rounded-lg px-4 py-2 text-center text-sm text-gray-500">✅ 평가 최종 완료. 더 이상 수정이 불가합니다.</div>`
@@ -397,7 +397,7 @@ function renderEval() {
           <div class="bg-gray-100 rounded-full h-2">
             <div id="pres-bar" class="h-2 rounded-full ${pSum > PRES_MAX ? 'bg-red-500' : 'bg-blue-500'} transition-all" style="width:${presW}%"></div>
           </div>
-          <p class="text-xs text-gray-400 mt-1">${PRES_MAX}점 이내 자유 배분 (초과 불가)</p>
+          <p class="text-xs text-gray-400 mt-1">${PRES_MAX}점 전액 배분 필수</p>
         </div>
         <div>
           <div class="flex items-center justify-between mb-1">
@@ -407,7 +407,7 @@ function renderEval() {
           <div class="bg-gray-100 rounded-full h-2">
             <div id="part-bar" class="h-2 rounded-full ${rSum > partMax ? 'bg-red-500' : 'bg-green-500'} transition-all" style="width:${partW}%"></div>
           </div>
-          <p class="text-xs text-gray-400 mt-1">${partMax}점 이내 자유 배분 (초과 불가)</p>
+          <p class="text-xs text-gray-400 mt-1">${partMax}점 전액 배분 필수</p>
         </div>
       </div>
       ${statusBanner}
@@ -432,22 +432,23 @@ function renderEval() {
     };
   });
 
-  $('btn-submit')?.addEventListener('click', () => {
-    if (!canSubmit) return;
-    showSubmitModal(isSubmitted);
-  });
+  // onclick 으로만 관리 — addEventListener 와 중복 등록 시 모달이 2회 생성되어 버튼 미반응 발생
+  const btnSubmit = $('btn-submit');
+  if (btnSubmit) {
+    btnSubmit.onclick = canSubmit ? () => showSubmitModal(isSubmitted) : null;
+  }
 }
 
 function refreshScoreTotals() {
   const uid = S.user.id;
   const partMax = S.students[uid]?.participation_max || 0;
   const pSum = presSum(), rSum = partSum();
-  const presOk = pSum <= PRES_MAX, partOk = rSum <= partMax;
+  const presOk = pSum === PRES_MAX, partOk = rSum === partMax;
   const isSubmitted = (S.students[uid]?.submission_count || 0) >= 1;
   const canSubmit = presOk && partOk;
 
   const presW = Math.min(100, (pSum / PRES_MAX) * 100);
-  const partW = partMax > 0 ? Math.min(100, (rSum / partMax) * 100) : 100;
+  const partW = partMax > 0 ? Math.min(100, (rSum / partMax) * 100) : (rSum === 0 ? 100 : 0);
 
   const pl = $('pres-label'), pb = $('pres-bar');
   const rl = $('part-label'), rb = $('part-bar');
