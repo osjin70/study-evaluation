@@ -217,9 +217,9 @@ const $ = id => document.getElementById(id);
 const appEl = () => document.getElementById('app');
 
 function scoreColor(cur, target) {
-  if (cur === target) return 'text-green-600 font-bold';
-  if (cur > target) return 'text-red-600 font-bold';
-  return 'text-orange-500 font-bold';
+  if (cur > target) return 'text-red-600 font-bold';   // 초과: 빨간색
+  if (cur > 0)      return 'text-green-600 font-bold'; // 1점 이상 이내: 초록색
+  return 'text-gray-400 font-bold';                    // 0점: 회색
 }
 
 function badge(ok, labelOk, labelNo) {
@@ -331,11 +331,11 @@ function renderEval() {
   const isSubmitted = subCnt >= 1;
   const partMax = S.students[uid]?.participation_max || 0;
   const pSum = presSum(), rSum = partSum();
-  const presOk = pSum === PRES_MAX, partOk = rSum === partMax;
+  const presOk = pSum <= PRES_MAX, partOk = rSum <= partMax;
   const canSubmit = presOk && partOk && !isFinished;
 
   const presW = Math.min(100, (pSum / PRES_MAX) * 100);
-  const partW = partMax > 0 ? Math.min(100, (rSum / partMax) * 100) : (rSum === 0 ? 100 : 0);
+  const partW = partMax > 0 ? Math.min(100, (rSum / partMax) * 100) : 100;
 
   const statusBanner = isFinished
     ? `<div class="mt-3 bg-gray-100 rounded-lg px-4 py-2 text-center text-sm text-gray-500">✅ 평가 최종 완료. 더 이상 수정이 불가합니다.</div>`
@@ -397,7 +397,7 @@ function renderEval() {
           <div class="bg-gray-100 rounded-full h-2">
             <div id="pres-bar" class="h-2 rounded-full ${pSum > PRES_MAX ? 'bg-red-500' : 'bg-blue-500'} transition-all" style="width:${presW}%"></div>
           </div>
-          <p class="text-xs text-gray-400 mt-1">반드시 ${PRES_MAX}점 전액 배분</p>
+          <p class="text-xs text-gray-400 mt-1">${PRES_MAX}점 이내 자유 배분 (초과 불가)</p>
         </div>
         <div>
           <div class="flex items-center justify-between mb-1">
@@ -407,7 +407,7 @@ function renderEval() {
           <div class="bg-gray-100 rounded-full h-2">
             <div id="part-bar" class="h-2 rounded-full ${rSum > partMax ? 'bg-red-500' : 'bg-green-500'} transition-all" style="width:${partW}%"></div>
           </div>
-          <p class="text-xs text-gray-400 mt-1">반드시 ${partMax}점 전액 배분</p>
+          <p class="text-xs text-gray-400 mt-1">${partMax}점 이내 자유 배분 (초과 불가)</p>
         </div>
       </div>
       ${statusBanner}
@@ -442,12 +442,12 @@ function refreshScoreTotals() {
   const uid = S.user.id;
   const partMax = S.students[uid]?.participation_max || 0;
   const pSum = presSum(), rSum = partSum();
-  const presOk = pSum === PRES_MAX, partOk = rSum === partMax;
+  const presOk = pSum <= PRES_MAX, partOk = rSum <= partMax;
   const isSubmitted = (S.students[uid]?.submission_count || 0) >= 1;
   const canSubmit = presOk && partOk;
 
   const presW = Math.min(100, (pSum / PRES_MAX) * 100);
-  const partW = partMax > 0 ? Math.min(100, (rSum / partMax) * 100) : (rSum === 0 ? 100 : 0);
+  const partW = partMax > 0 ? Math.min(100, (rSum / partMax) * 100) : 100;
 
   const pl = $('pres-label'), pb = $('pres-bar');
   const rl = $('part-label'), rb = $('part-bar');
@@ -480,8 +480,8 @@ function showSubmitModal(isResub) {
           : '제출 후 1회에 한해 재제출이 가능합니다. 계속하시겠습니까?'}
       </p>
       <div class="bg-gray-50 rounded-lg p-3 mb-4 text-sm space-y-1">
-        <div class="flex justify-between"><span class="text-gray-500">기말발표 점수 합계</span><span class="font-medium">${pSum} / ${PRES_MAX}</span></div>
-        <div class="flex justify-between"><span class="text-gray-500">참여 점수 합계</span><span class="font-medium">${rSum} / ${partMax}</span></div>
+        <div class="flex justify-between"><span class="text-gray-500">기말발표 점수 배분</span><span class="font-medium">${pSum}점 (한도 ${PRES_MAX}점)</span></div>
+        <div class="flex justify-between"><span class="text-gray-500">참여 점수 배분</span><span class="font-medium">${rSum}점 (한도 ${partMax}점)</span></div>
       </div>
       <div class="flex gap-3">
         <button id="modal-cancel" class="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 text-sm">취소</button>
