@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>기말평가 상호평가 시스템</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+<div id="app"></div>
+
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getDatabase, ref, set, get, update } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
+
+// ── Firebase ──────────────────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: 'AIzaSyC99haugmxISL8XP_GpLLDZSUyBoVYeK-c',
+  authDomain: 'study-evaluation-c9935.firebaseapp.com',
+  projectId: 'study-evaluation-c9935',
+  storageBucket: 'study-evaluation-c9935.firebasestorage.app',
+  messagingSenderId: '499525296840',
+  appId: '1:499525296840:web:012a77c03dff677ef47bfd',
+  databaseURL: 'https://study-evaluation-c9935-default-rtdb.asia-southeast1.firebasedatabase.app'
+};
+const fbApp = initializeApp(firebaseConfig);
+const db = getDatabase(fbApp);
+const dbGet = async (path) => { const s = await get(ref(db, path)); return s.exists() ? s.val() : null; };
+const dbSet = (path, val) => set(ref(db, path), val);
+const dbUpd = (path, val) => update(ref(db, path), val);
+
+// ── 상수 ──────────────────────────────────────────────────────────────────────
+const ADMIN = { name: '오상진', password: '700717' };
+const PRES_MAX = 10;
+
+const STUDENTS_INIT = [
+  { id: 'st01', name: '최지희', student_number: '20261156' },
+  { id: 'st02', name: '장한결', student_number: '20261155' },
+  { id: 'st03', name: '장경민', student_number: '20261154' },
+  { id: 'st04', name: '이호진', student_number: '20261153' },
+  { id: 'st05', name: '이지원', student_number: '20261152' },
+  { id: 'st06', name: '이재영', student_number: '20261120' },
+  { id: 'st07', name: '유재민', student_number: '20261151' },
+  { id: 'st08', name: '나용범', student_number: '20261149' },
+  { id: 'st09', name: '김동준', student_number: '20261148' },
+  { id: 'st10', name: '김규학', student_number: '20261147' },
+  { id: 'st11', name: '김강현', student_number: '20205010' },
+  { id: 'st12', name: '곽진화', student_number: '20261146' },
+  { id: 'st13', name: '강시온', student_number: '20261145' },
+  { id: 'st14', name: 'Muza',   student_number: '20225229' },
+];
+
+// ── 상태 ──────────────────────────────────────────────────────────────────────
+let S = {
+  view: 'login',       // login | changePw | eval | admin
+  user: null,          // { role, id, name }
+  students: {},        // id → { name, student_number, password, password_changed, participation_max, submission_count }
+  evals: {},           // evaluatorId → targetId → { presentation_score, participation_score, submitted_at }
+  scores: {},          // 로컬 평가 입력: targetId → { p, r }
+  adminTab: 'students',
+  modal: null,         // { type:'received'|'given', sid }
+  error: '',
+};
+
+// ── 데이터 헬퍼 ───────────────────────────────────────────────────────────────
+const studentsArr = () => STUDENTS_INIT.map(s => ({ ...s, ...S.students[s.id] }));
+const studentById = id => studentsArr().find(s => s.id === id);
+const othersOf = myId => studentsArr().filter(s => s.id !== myId);
+
+const presSum = () => Object.values(S.scores).reduce((a, v) => a + (v.p || 0), 0);
+const partSum = () => Object.values(S.scores).reduce((a, v) => a + (v.r || 0), 0);
+
+function receivedBy(targetId) {
+  return Object.entries(S.evals).flatMap(([eid, targets]) =>
+    targets[targetId]
+      ? [{ evaluatorId: eid, evaluatorName: S.students[eid]?.name || eid, ...targets[targetId] }]
+      : []
+  );
+}
+
+function givenBy(evalId) {
+  return Object.entries(S.evals[evalId] || {}).map(([tid, v]) => ({
+    targetId: tid, targetName: S.students[tid]?.name || tid, ...v
+  }));
+}
+
+function totalReceived(sid) {
+  const r = receivedBy(sid);
+  const pres = r.reduce((a, x) => a + (x.presentation_score || 0), 0);
+  const part = r.reduce((a, x) => a + (x.participation_score || 0), 0);
+  return { pres, part, total: pres + part };
+}
+
+// ── Firebase 초기화 ────────────────────────────────────────────────────────────
+async function initDB() {
+  const existing = await dbGet('students');
+  if (!existing) {
+    const obj = {};
+    for (const s of STUDENTS_INIT) {
+      obj[s.id] = {
+        name: s.name, student_number: s.student_number,
+        password: s.student_number, password_changed: false,
+        participation_max: 0, submission_count: 0
+      };
+    }
+    await dbSet('students', obj);
+  }
+}
+
+async function loadData() {
+  const [students, evals] = await Promise.all([dbGet('students'), dbGet('evaluations')]);
+  S.students = students || {};
+  S.evals = evals || {};
+}
+
+// ── 인증 ──────────────────────────────────────────────────────────────────────
+async function login(name, pw) {
+  S.error = '';
+  if (name === ADMIN.name) {
+    if (pw !== ADMIN.password) { S.error = '관리자 비밀번호가 올바르지 않습니다.'; render(); return; }
+    S.user = { role: 'admin', id: 'admin', name };
+    S.view = 'admin'; render(); return;
+  }
+  const st = studentsArr().find(s => s.name === name);
+  if (!st) { S.error = '이름을 찾을 수 없습니다.'; render(); return; }
+  if (st.password !== pw) { S.error = '패스워드가 올바르지 않습니다.'; render(); return; }
+  S.user = { role: 'student', id: st.id, name: st.name };
+  if (!st.password_changed) { S.view = 'changePw'; }
+  else { S.view = 'eval'; initScores(); }
+  render();
+}
+
+async function changePw(newPw) {
+  const id = S.user.id;
+  await dbUpd(`students/${id}`, { password: newPw, password_changed: true });
+  S.students[id] = { ...S.students[id], password: newPw, password_changed: true };
+  S.view = 'eval'; initScores(); render();
+}
+
+function logout() {
+  S = { ...S, view: 'login', user: null, scores: {}, modal: null, error: '' };
+  render();
+}
+
+// ── 평가 ──────────────────────────────────────────────────────────────────────
+function initScores() {
+  const existing = S.evals[S.user.id] || {};
+  S.scores = {};
+  for (const st of othersOf(S.user.id)) {
+    S.scores[st.id] = {
+      p: existing[st.id]?.presentation_score ?? 0,
+      r: existing[st.id]?.participation_score ?? 0,
+    };
+  }
+}
+
+async function submitEval(isResub) {
+  const uid = S.user.id;
+  const cnt = S.students[uid]?.submission_count || 0;
+  if (!isResub && cnt >= 1) return;
+  if (isResub && cnt >= 2) return;
+  const now = new Date().toISOString();
+  const data = {};
+  for (const [tid, v] of Object.entries(S.scores)) {
+    data[tid] = { presentation_score: v.p, participation_score: v.r, submitted_at: now };
+  }
+  await dbSet(`evaluations/${uid}`, data);
+  await dbUpd(`students/${uid}`, { submission_count: cnt + 1 });
+  S.evals[uid] = data;
+  S.students[uid].submission_count = cnt + 1;
+  render();
+}
+
+// ── 관리자 ────────────────────────────────────────────────────────────────────
+async function resetPw(sid) {
+  const sn = S.students[sid].student_number;
+  await dbUpd(`students/${sid}`, { password: sn, password_changed: false });
+  S.students[sid] = { ...S.students[sid], password: sn, password_changed: false };
+  render();
+}
+
+async function savePartScores() {
+  const updates = {};
+  document.querySelectorAll('.part-input').forEach(inp => {
+    const sid = inp.dataset.sid;
+    const val = Math.min(8, Math.max(0, parseInt(inp.value) || 0));
+    updates[`students/${sid}/participation_max`] = val;
+    S.students[sid].participation_max = val;
+  });
+  await dbUpd('/', updates);
+  alert('참여 점수가 저장되었습니다.');
+  render();
+}
+
+function downloadCSV() {
+  const rows = [['이름', '기말발표 합계', '참여점수 합계', '최종점수', '제출여부']];
+  for (const s of studentsArr()) {
+    const { pres, part, total } = totalReceived(s.id);
+    const sub = (S.students[s.id]?.submission_count || 0) >= 1 ? '완료' : '미완료';
+    rows.push([s.name, pres, part, total, sub]);
+  }
+  const csv = '﻿' + rows.map(r => r.join(',')).join('\n');
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })),
+    download: '기말평가결과.csv'
+  });
+  a.click();
+}
+
+// ── UI 헬퍼 ───────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const appEl = () => document.getElementById('app');
+
+function scoreColor(cur, target) {
+  if (cur === target) return 'text-green-600 font-bold';
+  if (cur > target) return 'text-red-600 font-bold';
+  return 'text-orange-500 font-bold';
+}
+
+function badge(ok, labelOk, labelNo) {
+  return ok
+    ? `<span class="px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700">${labelOk}</span>`
+    : `<span class="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">${labelNo}</span>`;
+}
+
+// ── 렌더: 로그인 ──────────────────────────────────────────────────────────────
+function renderLogin() {
+  const opts = [ADMIN.name, ...STUDENTS_INIT.map(s => s.name)]
+    .map(n => `<option value="${n}">${n}</option>`).join('');
+  appEl().innerHTML = `
+  <div class="min-h-screen flex items-center justify-center px-4">
+    <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm">
+      <div class="text-center mb-6">
+        <div class="text-5xl mb-3">📋</div>
+        <h1 class="text-2xl font-bold text-gray-800">기말평가 상호평가</h1>
+        <p class="text-sm text-gray-400 mt-1">2026학년도 기말평가 시스템</p>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">이름</label>
+          <select id="l-name" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">${opts}</select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">패스워드</label>
+          <input id="l-pw" type="password" placeholder="패스워드 입력"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        </div>
+        ${S.error ? `<p class="text-red-500 text-sm bg-red-50 rounded-lg px-3 py-2">${S.error}</p>` : ''}
+        <button id="btn-login"
+          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition">
+          로그인
+        </button>
+      </div>
+    </div>
+  </div>`;
+  $('btn-login').onclick = () => login($('l-name').value, $('l-pw').value);
+  $('l-pw').onkeydown = e => e.key === 'Enter' && $('btn-login').click();
+}
+
+// ── 렌더: 패스워드 변경 ───────────────────────────────────────────────────────
+function renderChangePw() {
+  appEl().innerHTML = `
+  <div class="min-h-screen flex items-center justify-center px-4">
+    <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm">
+      <div class="text-center mb-6">
+        <div class="text-4xl mb-3">🔑</div>
+        <h2 class="text-xl font-bold text-gray-800">패스워드 변경</h2>
+        <p class="text-sm text-gray-400 mt-1">최초 로그인입니다. 새 패스워드를 설정해주세요.</p>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">새 패스워드</label>
+          <input id="pw1" type="password" maxlength="8" placeholder="8자리 이하 영문·숫자"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">패스워드 확인</label>
+          <input id="pw2" type="password" maxlength="8" placeholder="패스워드 재입력"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        </div>
+        <p id="pw-err" class="text-red-500 text-sm hidden"></p>
+        <button id="btn-cpw"
+          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition">
+          변경 후 평가 시작
+        </button>
+      </div>
+    </div>
+  </div>`;
+  $('btn-cpw').onclick = () => {
+    const p1 = $('pw1').value.trim(), p2 = $('pw2').value.trim();
+    const errEl = $('pw-err');
+    if (!p1) { errEl.textContent = '패스워드를 입력해주세요.'; errEl.classList.remove('hidden'); return; }
+    if (p1 !== p2) { errEl.textContent = '패스워드가 일치하지 않습니다.'; errEl.classList.remove('hidden'); return; }
+    errEl.classList.add('hidden');
+    changePw(p1);
+  };
+}
+
+// ── 렌더: 학생 평가 화면 ──────────────────────────────────────────────────────
+function renderEval() {
+  const uid = S.user.id;
+  const me = studentById(uid);
+  const others = othersOf(uid);
+  const subCnt = S.students[uid]?.submission_count || 0;
+  const isFinished = subCnt >= 2;
+  const isSubmitted = subCnt >= 1;
+  const partMax = S.students[uid]?.participation_max || 0;
+  const pSum = presSum(), rSum = partSum();
+  const presOk = pSum === PRES_MAX, partOk = rSum === partMax;
+  const canSubmit = presOk && partOk && !isFinished;
+
+  const presW = Math.min(100, (pSum / PRES_MAX) * 100);
+  const partW = partMax > 0 ? Math.min(100, (rSum / partMax) * 100) : (rSum === 0 ? 100 : 0);
+
+  const statusBanner = isFinished
+    ? `<div class="mt-3 bg-gray-100 rounded-lg px-4 py-2 text-center text-sm text-gray-500">✅ 평가 최종 완료. 더 이상 수정이 불가합니다.</div>`
+    : isSubmitted
+      ? `<div class="mt-3 bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-2 text-center text-sm text-yellow-700">⚠️ 1차 제출 완료. 1회에 한해 재제출 가능합니다.</div>`
+      : '';
+
+  const cards = others.map(st => {
+    const sv = S.scores[st.id] || { p: 0, r: 0 };
+    const dis = isFinished ? 'disabled' : '';
+    return `
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 hover:border-blue-200 transition">
+      <p class="font-semibold text-gray-800 mb-3 text-center">${st.name}</p>
+      <div class="space-y-2">
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 w-16 shrink-0">기말발표</span>
+          <input type="number" min="0" max="3" value="${sv.p}"
+            class="score-inp w-14 text-center border border-gray-200 rounded-lg py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 ${isFinished ? 'bg-gray-50 text-gray-400' : ''}"
+            data-sid="${st.id}" data-type="p" ${dis} />
+          <span class="text-xs text-gray-300">/ 3점</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-gray-400 w-16 shrink-0">참여</span>
+          <input type="number" min="0" max="3" value="${sv.r}"
+            class="score-inp w-14 text-center border border-gray-200 rounded-lg py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 ${isFinished ? 'bg-gray-50 text-gray-400' : ''}"
+            data-sid="${st.id}" data-type="r" ${dis} />
+          <span class="text-xs text-gray-300">/ 3점</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const submitArea = isFinished ? '' : `
+  <div class="mt-6 flex justify-center">
+    <button id="btn-submit"
+      class="px-10 py-3 rounded-xl font-semibold text-white transition ${canSubmit ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 cursor-not-allowed'}"
+      ${canSubmit ? '' : 'disabled'}>
+      ${isSubmitted ? '재제출하기' : '최종 제출'}
+    </button>
+  </div>`;
+
+  appEl().innerHTML = `
+  <div class="max-w-3xl mx-auto py-6 px-4">
+    <div class="bg-white rounded-xl shadow-sm px-5 py-4 mb-4 flex items-center justify-between">
+      <div>
+        <h1 class="text-lg font-bold text-gray-800">📋 기말평가 상호평가</h1>
+        <p class="text-sm text-gray-400">${S.user.name} 님 | 본인 제외 ${others.length}명 평가</p>
+      </div>
+      <button onclick="logout()" class="text-sm text-gray-400 hover:text-red-500 transition">로그아웃</button>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm px-5 py-4 mb-4">
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-xs text-gray-500">기말발표 점수 배분</span>
+            <span id="pres-label" class="${scoreColor(pSum, PRES_MAX)} text-sm">${pSum} / ${PRES_MAX}</span>
+          </div>
+          <div class="bg-gray-100 rounded-full h-2">
+            <div id="pres-bar" class="h-2 rounded-full ${pSum > PRES_MAX ? 'bg-red-500' : 'bg-blue-500'} transition-all" style="width:${presW}%"></div>
+          </div>
+          <p class="text-xs text-gray-400 mt-1">반드시 ${PRES_MAX}점 전액 배분</p>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-xs text-gray-500">참여 점수 배분</span>
+            <span id="part-label" class="${scoreColor(rSum, partMax)} text-sm">${rSum} / ${partMax}</span>
+          </div>
+          <div class="bg-gray-100 rounded-full h-2">
+            <div id="part-bar" class="h-2 rounded-full ${rSum > partMax ? 'bg-red-500' : 'bg-green-500'} transition-all" style="width:${partW}%"></div>
+          </div>
+          <p class="text-xs text-gray-400 mt-1">반드시 ${partMax}점 전액 배분</p>
+        </div>
+      </div>
+      ${statusBanner}
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      ${cards}
+    </div>
+    ${submitArea}
+  </div>`;
+
+  // 점수 입력 이벤트 (타겟 DOM 업데이트)
+  document.querySelectorAll('.score-inp').forEach(inp => {
+    inp.oninput = () => {
+      const sid = inp.dataset.sid, type = inp.dataset.type;
+      let val = parseInt(inp.value) || 0;
+      val = Math.min(3, Math.max(0, val));
+      inp.value = val;
+      if (!S.scores[sid]) S.scores[sid] = { p: 0, r: 0 };
+      S.scores[sid][type] = val;
+      refreshScoreTotals();
+    };
+  });
+
+  $('btn-submit')?.addEventListener('click', () => {
+    if (!canSubmit) return;
+    showSubmitModal(isSubmitted);
+  });
+}
+
+function refreshScoreTotals() {
+  const uid = S.user.id;
+  const partMax = S.students[uid]?.participation_max || 0;
+  const pSum = presSum(), rSum = partSum();
+  const presOk = pSum === PRES_MAX, partOk = rSum === partMax;
+  const isSubmitted = (S.students[uid]?.submission_count || 0) >= 1;
+  const canSubmit = presOk && partOk;
+
+  const presW = Math.min(100, (pSum / PRES_MAX) * 100);
+  const partW = partMax > 0 ? Math.min(100, (rSum / partMax) * 100) : (rSum === 0 ? 100 : 0);
+
+  const pl = $('pres-label'), pb = $('pres-bar');
+  const rl = $('part-label'), rb = $('part-bar');
+  const btn = $('btn-submit');
+
+  if (pl) { pl.textContent = `${pSum} / ${PRES_MAX}`; pl.className = `text-sm ${scoreColor(pSum, PRES_MAX)}`; }
+  if (pb) { pb.style.width = `${presW}%`; pb.className = `h-2 rounded-full ${pSum > PRES_MAX ? 'bg-red-500' : 'bg-blue-500'} transition-all`; }
+  if (rl) { rl.textContent = `${rSum} / ${partMax}`; rl.className = `text-sm ${scoreColor(rSum, partMax)}`; }
+  if (rb) { rb.style.width = `${partW}%`; rb.className = `h-2 rounded-full ${rSum > partMax ? 'bg-red-500' : 'bg-green-500'} transition-all`; }
+  if (btn) {
+    btn.disabled = !canSubmit;
+    btn.className = `px-10 py-3 rounded-xl font-semibold text-white transition ${canSubmit ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 cursor-not-allowed'}`;
+    btn.textContent = isSubmitted ? '재제출하기' : '최종 제출';
+    // Re-bind click since we don't re-render
+    btn.onclick = canSubmit ? () => showSubmitModal(isSubmitted) : null;
+  }
+}
+
+function showSubmitModal(isResub) {
+  const uid = S.user.id;
+  const partMax = S.students[uid]?.participation_max || 0;
+  const pSum = presSum(), rSum = partSum();
+  const html = `
+  <div id="submit-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+    <div class="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
+      <h3 class="text-lg font-bold text-gray-800 mb-2">${isResub ? '재제출' : '최종 제출'} 확인</h3>
+      <p class="text-sm text-gray-600 mb-4">
+        ${isResub
+          ? '재제출 시 이전 평가가 덮어씌워집니다. 재제출은 1회만 가능하며 이후 수정 불가합니다.'
+          : '제출 후 1회에 한해 재제출이 가능합니다. 계속하시겠습니까?'}
+      </p>
+      <div class="bg-gray-50 rounded-lg p-3 mb-4 text-sm space-y-1">
+        <div class="flex justify-between"><span class="text-gray-500">기말발표 점수 합계</span><span class="font-medium">${pSum} / ${PRES_MAX}</span></div>
+        <div class="flex justify-between"><span class="text-gray-500">참여 점수 합계</span><span class="font-medium">${rSum} / ${partMax}</span></div>
+      </div>
+      <div class="flex gap-3">
+        <button id="modal-cancel" class="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 text-sm">취소</button>
+        <button id="modal-ok" class="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm">${isResub ? '재제출' : '제출'}</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  $('modal-cancel').onclick = () => $('submit-modal').remove();
+  $('modal-ok').onclick = () => { $('submit-modal').remove(); submitEval(isResub); };
+}
+
+// ── 렌더: 관리자 대시보드 ────────────────────────────────────────────────────
+function renderAdmin() {
+  document.getElementById('admin-modal')?.remove();
+  const tabs = [
+    { key: 'students', label: '학생 관리' },
+    { key: 'scores',   label: '참여점수 설정' },
+    { key: 'results',  label: '평가 결과' },
+    { key: 'given',    label: '부여 점수 현황' },
+    { key: 'status',   label: '제출 현황' },
+  ];
+  const tabBar = tabs.map(t => `
+    <button class="tab-btn px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition
+      ${S.adminTab === t.key ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}"
+      data-tab="${t.key}">${t.label}</button>`).join('');
+
+  let content = '';
+  switch (S.adminTab) {
+    case 'students': content = tabStudents(); break;
+    case 'scores':   content = tabScores(); break;
+    case 'results':  content = tabResults(); break;
+    case 'given':    content = tabGiven(); break;
+    case 'status':   content = tabStatus(); break;
+  }
+
+  appEl().innerHTML = `
+  <div class="max-w-4xl mx-auto py-6 px-4">
+    <div class="bg-white rounded-xl shadow-sm px-5 py-4 mb-4 flex items-center justify-between">
+      <div>
+        <h1 class="text-xl font-bold text-gray-800">⚙️ 관리자 대시보드</h1>
+        <p class="text-sm text-gray-400">오상진 교수님</p>
+      </div>
+      <button onclick="logout()" class="text-sm text-gray-400 hover:text-red-500 transition">로그아웃</button>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <div class="border-b border-gray-100 flex overflow-x-auto">${tabBar}</div>
+      <div class="p-5">${content}</div>
+    </div>
+  </div>`;
+
+  document.querySelectorAll('.tab-btn').forEach(btn =>
+    btn.addEventListener('click', () => { S.adminTab = btn.dataset.tab; renderAdmin(); })
+  );
+
+  switch (S.adminTab) {
+    case 'students':
+      document.querySelectorAll('.btn-reset').forEach(btn =>
+        btn.addEventListener('click', async () => {
+          const st = studentById(btn.dataset.sid);
+          if (confirm(`${st?.name} 학생의 패스워드를 학번으로 초기화하시겠습니까?`)) {
+            await resetPw(btn.dataset.sid);
+          }
+        })
+      ); break;
+    case 'scores':
+      $('btn-save-part')?.addEventListener('click', savePartScores); break;
+    case 'results':
+      $('btn-csv')?.addEventListener('click', downloadCSV);
+      document.querySelectorAll('.result-row').forEach(row =>
+        row.addEventListener('click', () => { S.modal = { type: 'received', sid: row.dataset.sid }; showAdminModal(); })
+      ); break;
+    case 'given':
+      document.querySelectorAll('.given-row').forEach(row =>
+        row.addEventListener('click', () => { S.modal = { type: 'given', sid: row.dataset.sid }; showAdminModal(); })
+      ); break;
+  }
+}
+
+function tabStudents() {
+  const rows = studentsArr().map(s => {
+    const d = S.students[s.id] || {};
+    return `<tr class="border-t border-gray-50 hover:bg-gray-50">
+      <td class="py-3 px-4 font-medium">${s.name}</td>
+      <td class="py-3 px-4 text-gray-400 text-sm">${s.student_number}</td>
+      <td class="py-3 px-4">${badge(d.password_changed, '변경됨', '초기값(학번)')}</td>
+      <td class="py-3 px-4">
+        <button class="btn-reset text-xs border border-red-200 text-red-400 hover:bg-red-50 rounded px-2 py-1 transition" data-sid="${s.id}">초기화</button>
+      </td>
+    </tr>`;
+  }).join('');
+  return `
+  <h2 class="font-semibold text-gray-700 mb-3">학생 목록 (총 ${STUDENTS_INIT.length}명)</h2>
+  <div class="overflow-x-auto"><table class="w-full text-sm">
+    <thead><tr class="bg-gray-50 text-gray-500 text-left text-xs">
+      <th class="py-2 px-4">이름</th><th class="py-2 px-4">학번</th><th class="py-2 px-4">패스워드 상태</th><th class="py-2 px-4">초기화</th>
+    </tr></thead><tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+function tabScores() {
+  const rows = studentsArr().map(s => {
+    const cur = S.students[s.id]?.participation_max ?? 0;
+    return `<tr class="border-t border-gray-50 hover:bg-gray-50">
+      <td class="py-3 px-4 font-medium">${s.name}</td>
+      <td class="py-3 px-4">
+        <input type="number" min="0" max="8" value="${cur}"
+          class="part-input w-20 text-center border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          data-sid="${s.id}" />
+        <span class="text-xs text-gray-400 ml-1">점 (0~8)</span>
+      </td>
+    </tr>`;
+  }).join('');
+  return `
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-semibold text-gray-700">참여 점수 설정 <span class="text-xs text-gray-400 font-normal">(출석 기반, 학생별 0~8점)</span></h2>
+    <button id="btn-save-part" class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 font-medium transition">저장</button>
+  </div>
+  <div class="overflow-x-auto"><table class="w-full text-sm">
+    <thead><tr class="bg-gray-50 text-gray-500 text-left text-xs">
+      <th class="py-2 px-4">이름</th><th class="py-2 px-4">참여 점수</th>
+    </tr></thead><tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+function tabResults() {
+  const rows = studentsArr().map(s => {
+    const { pres, part, total } = totalReceived(s.id);
+    const sub = (S.students[s.id]?.submission_count || 0) >= 1;
+    const cnt = receivedBy(s.id).length;
+    return `<tr class="border-t border-gray-50 hover:bg-blue-50 cursor-pointer result-row" data-sid="${s.id}">
+      <td class="py-3 px-4 font-medium">${s.name}</td>
+      <td class="py-3 px-4 text-center">${pres}</td>
+      <td class="py-3 px-4 text-center">${part}</td>
+      <td class="py-3 px-4 text-center font-bold text-blue-700">${total}</td>
+      <td class="py-3 px-4 text-center">${badge(sub, `완료(${cnt}명)`, '미완료')}</td>
+    </tr>`;
+  }).join('');
+  return `
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-semibold text-gray-700">평가 결과 조회 <span class="text-xs text-gray-400 font-normal">(행 클릭 → 상세)</span></h2>
+    <button id="btn-csv" class="px-3 py-1.5 border border-gray-200 text-sm rounded-lg hover:bg-gray-50 transition">📥 CSV</button>
+  </div>
+  <div class="overflow-x-auto"><table class="w-full text-sm">
+    <thead><tr class="bg-gray-50 text-gray-500 text-xs">
+      <th class="py-2 px-4 text-left">학생명</th>
+      <th class="py-2 px-4 text-center">기말발표 합계</th>
+      <th class="py-2 px-4 text-center">참여점수 합계</th>
+      <th class="py-2 px-4 text-center">최종점수</th>
+      <th class="py-2 px-4 text-center">완료여부</th>
+    </tr></thead><tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+function tabGiven() {
+  const rows = studentsArr().map(s => {
+    const given = givenBy(s.id);
+    const presG = given.reduce((a, g) => a + (g.presentation_score || 0), 0);
+    const partG = given.reduce((a, g) => a + (g.participation_score || 0), 0);
+    const sub = (S.students[s.id]?.submission_count || 0) >= 1;
+    return `<tr class="border-t border-gray-50 hover:bg-blue-50 cursor-pointer given-row" data-sid="${s.id}">
+      <td class="py-3 px-4 font-medium">${s.name}</td>
+      <td class="py-3 px-4 text-center">${presG}</td>
+      <td class="py-3 px-4 text-center">${partG}</td>
+      <td class="py-3 px-4 text-center font-medium">${presG + partG}</td>
+      <td class="py-3 px-4 text-center">${badge(sub, '제출', '미제출')}</td>
+    </tr>`;
+  }).join('');
+  return `
+  <h2 class="font-semibold text-gray-700 mb-3">부여 점수 현황 <span class="text-xs text-gray-400 font-normal">(행 클릭 → 상세)</span></h2>
+  <div class="overflow-x-auto"><table class="w-full text-sm">
+    <thead><tr class="bg-gray-50 text-gray-500 text-xs">
+      <th class="py-2 px-4 text-left">평가자</th>
+      <th class="py-2 px-4 text-center">기말발표 합계</th>
+      <th class="py-2 px-4 text-center">참여점수 합계</th>
+      <th class="py-2 px-4 text-center">총 부여점수</th>
+      <th class="py-2 px-4 text-center">제출여부</th>
+    </tr></thead><tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+function tabStatus() {
+  const all = studentsArr();
+  const done = all.filter(s => (S.students[s.id]?.submission_count || 0) >= 1);
+  const todo = all.filter(s => (S.students[s.id]?.submission_count || 0) < 1);
+  const pct = Math.round((done.length / all.length) * 100);
+  return `
+  <h2 class="font-semibold text-gray-700 mb-3">제출 현황 (${done.length} / ${all.length}명)</h2>
+  <div class="mb-4">
+    <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
+      <span>${done.length}명 완료</span><span>${pct}%</span>
+    </div>
+    <div class="bg-gray-100 rounded-full h-3">
+      <div class="bg-blue-500 h-3 rounded-full transition-all" style="width:${pct}%"></div>
+    </div>
+  </div>
+  <div class="grid grid-cols-2 gap-6">
+    <div>
+      <h3 class="text-sm font-medium text-green-700 mb-2">✅ 제출 완료 (${done.length}명)</h3>
+      <ul class="space-y-1.5">
+        ${done.map(s => {
+          const cnt = S.students[s.id]?.submission_count || 0;
+          return `<li class="text-sm text-gray-700 flex items-center gap-1.5">${s.name}
+            ${cnt >= 2 ? '<span class="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">재제출</span>' : ''}
+          </li>`;
+        }).join('') || '<li class="text-sm text-gray-400">없음</li>'}
+      </ul>
+    </div>
+    <div>
+      <h3 class="text-sm font-medium text-red-500 mb-2">⏳ 미제출 (${todo.length}명)</h3>
+      <ul class="space-y-1.5">
+        ${todo.map(s => `<li class="text-sm text-gray-700">${s.name}</li>`).join('') || '<li class="text-sm text-gray-400">없음</li>'}
+      </ul>
+    </div>
+  </div>`;
+}
+
+function showAdminModal() {
+  document.getElementById('admin-modal')?.remove();
+  const { type, sid } = S.modal;
+  const student = studentById(sid);
+  let body = '';
+
+  if (type === 'received') {
+    const list = receivedBy(sid);
+    const { pres, part, total } = totalReceived(sid);
+    const rows = list.length
+      ? list.map(r => `<tr class="border-t border-gray-50">
+          <td class="py-2 px-4">${r.evaluatorName}</td>
+          <td class="py-2 px-4 text-center">${r.presentation_score}</td>
+          <td class="py-2 px-4 text-center">${r.participation_score}</td>
+        </tr>`).join('')
+      : `<tr><td colspan="3" class="py-4 text-center text-gray-400 text-sm">아직 평가한 학생이 없습니다</td></tr>`;
+    body = `
+    <h3 class="font-bold text-gray-800 mb-1">${student?.name} — 받은 점수 상세</h3>
+    <p class="text-xs text-gray-400 mb-3">합계: 기말발표 ${pres}점 + 참여 ${part}점 = <strong class="text-blue-700">${total}점</strong></p>
+    <table class="w-full text-sm"><thead><tr class="bg-gray-50 text-gray-500 text-xs">
+      <th class="py-2 px-4 text-left">평가자</th><th class="py-2 px-4 text-center">기말발표</th><th class="py-2 px-4 text-center">참여점수</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  } else {
+    const list = givenBy(sid);
+    const rows = list.length
+      ? list.map(g => `<tr class="border-t border-gray-50">
+          <td class="py-2 px-4">${g.targetName}</td>
+          <td class="py-2 px-4 text-center">${g.presentation_score}</td>
+          <td class="py-2 px-4 text-center">${g.participation_score}</td>
+        </tr>`).join('')
+      : `<tr><td colspan="3" class="py-4 text-center text-gray-400 text-sm">제출한 평가가 없습니다</td></tr>`;
+    body = `
+    <h3 class="font-bold text-gray-800 mb-1">${student?.name} — 부여한 점수 상세</h3>
+    <p class="text-xs text-gray-400 mb-3">13명에게 부여한 점수 내역</p>
+    <table class="w-full text-sm"><thead><tr class="bg-gray-50 text-gray-500 text-xs">
+      <th class="py-2 px-4 text-left">피평가자</th><th class="py-2 px-4 text-center">기말발표</th><th class="py-2 px-4 text-center">참여점수</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  document.body.insertAdjacentHTML('beforeend', `
+  <div id="admin-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+    <div class="bg-white rounded-2xl shadow-xl p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto">
+      ${body}
+      <button id="modal-close" class="mt-4 w-full py-2 border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50 text-sm">닫기</button>
+    </div>
+  </div>`);
+
+  $('modal-close').onclick = () => { $('admin-modal').remove(); S.modal = null; };
+  $('admin-modal').onclick = e => { if (e.target === $('admin-modal')) { $('admin-modal').remove(); S.modal = null; } };
+}
+
+// ── 메인 렌더 ─────────────────────────────────────────────────────────────────
+function render() {
+  document.getElementById('admin-modal')?.remove();
+  document.getElementById('submit-modal')?.remove();
+  switch (S.view) {
+    case 'login':    renderLogin(); break;
+    case 'changePw': renderChangePw(); break;
+    case 'eval':     renderEval(); break;
+    case 'admin':    renderAdmin(); break;
+  }
+}
+
+window.logout = logout;
+
+// ── 부트 ─────────────────────────────────────────────────────────────────────
+async function boot() {
+  appEl().innerHTML = `<div class="min-h-screen flex items-center justify-center"><p class="text-gray-400 text-sm">로딩 중...</p></div>`;
+  try {
+    await initDB();
+    await loadData();
+  } catch (e) {
+    appEl().innerHTML = `<div class="min-h-screen flex items-center justify-center">
+      <p class="text-red-500">Firebase 연결 실패: ${e.message}</p></div>`;
+    return;
+  }
+  render();
+}
+
+boot();
+</script>
+</body>
+</html>
