@@ -184,6 +184,20 @@ async function resetPw(sid) {
   render();
 }
 
+async function resetAllData() {
+  const updates = {};
+  for (const s of STUDENTS_INIT) {
+    updates[`students/${s.id}/submission_count`] = 0;
+  }
+  await dbUpd('/', updates);
+  await dbSet('evaluations', null);
+  S.evals = {};
+  for (const s of STUDENTS_INIT) {
+    if (S.students[s.id]) S.students[s.id].submission_count = 0;
+  }
+  render();
+}
+
 async function savePartScores() {
   const updates = {};
   document.querySelectorAll('.part-input').forEach(inp => {
@@ -559,7 +573,10 @@ function renderAdmin() {
         <h1 class="text-xl font-bold text-gray-800">⚙️ 관리자 대시보드</h1>
         <p class="text-sm text-gray-400">오상진 교수님</p>
       </div>
-      <button onclick="logout()" class="text-sm text-gray-400 hover:text-red-500 transition">로그아웃</button>
+      <div class="flex items-center gap-3">
+        <button id="btn-reset-all" class="text-sm text-red-400 border border-red-200 hover:bg-red-50 rounded-lg px-3 py-1.5 transition">전체 초기화</button>
+        <button onclick="logout()" class="text-sm text-gray-400 hover:text-red-500 transition">로그아웃</button>
+      </div>
     </div>
     <div class="bg-white rounded-xl shadow-sm overflow-hidden">
       <div class="border-b border-gray-100 flex overflow-x-auto">${tabBar}</div>
@@ -570,6 +587,8 @@ function renderAdmin() {
   document.querySelectorAll('.tab-btn').forEach(btn =>
     btn.addEventListener('click', () => { S.adminTab = btn.dataset.tab; renderAdmin(); })
   );
+
+  $('btn-reset-all')?.addEventListener('click', showResetAllModal);
 
   switch (S.adminTab) {
     case 'students':
@@ -731,6 +750,51 @@ function tabStatus() {
       </ul>
     </div>
   </div>`;
+}
+
+function showResetAllModal() {
+  document.getElementById('reset-all-modal')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'reset-all-modal';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:1rem;';
+
+  const card = document.createElement('div');
+  card.style.cssText = 'background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);padding:1.5rem;max-width:360px;width:100%;';
+
+  card.innerHTML = `
+    <h3 style="font-size:1.1rem;font-weight:700;color:#dc2626;margin:0 0 0.5rem;">⚠️ 전체 초기화</h3>
+    <p style="font-size:0.875rem;color:#4b5563;margin:0 0 1rem;line-height:1.6;">
+      모든 학생의 <strong>평가 데이터</strong>와 <strong>제출 기록</strong>이 삭제됩니다.<br>
+      패스워드·참여점수 설정은 유지됩니다.<br>
+      <span style="color:#dc2626;font-weight:600;">이 작업은 되돌릴 수 없습니다.</span>
+    </p>
+    <p style="font-size:0.8rem;color:#9ca3af;margin:0 0 1rem;">계속하려면 아래에 <strong style="color:#374151;">초기화</strong> 를 입력하세요.</p>
+    <input id="reset-confirm-input" type="text" placeholder="초기화"
+      style="display:block;width:100%;border:1px solid #d1d5db;border-radius:0.5rem;padding:0.55rem 0.75rem;font-size:0.9rem;outline:none;box-sizing:border-box;margin-bottom:1rem;" />
+    <div style="display:flex;gap:0.75rem;">
+      <button id="reset-cancel-btn" style="flex:1;padding:0.6rem 0;border:1px solid #d1d5db;border-radius:8px;background:#fff;color:#374151;font-size:0.875rem;cursor:pointer;">취소</button>
+      <button id="reset-ok-btn" style="flex:1;padding:0.6rem 0;border:none;border-radius:8px;background:#dc2626;color:#fff;font-size:0.875rem;font-weight:600;cursor:pointer;" disabled>초기화</button>
+    </div>`;
+
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
+  const input = document.getElementById('reset-confirm-input');
+  const okBtn = document.getElementById('reset-ok-btn');
+  const cancelBtn = document.getElementById('reset-cancel-btn');
+
+  input.addEventListener('input', () => {
+    okBtn.disabled = input.value.trim() !== '초기화';
+    okBtn.style.opacity = okBtn.disabled ? '0.4' : '1';
+  });
+  cancelBtn.onclick = () => overlay.remove();
+  okBtn.onclick = async () => {
+    overlay.remove();
+    await resetAllData();
+  };
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  input.focus();
 }
 
 function showAdminModal() {
