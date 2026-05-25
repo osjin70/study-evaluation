@@ -468,31 +468,61 @@ function refreshScoreTotals() {
 }
 
 function showSubmitModal(isResub) {
+  document.getElementById('submit-modal')?.remove();
   const uid = S.user.id;
   const partMax = S.students[uid]?.participation_max || 0;
   const pSum = presSum(), rSum = partSum();
-  const html = `
-  <div id="submit-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
-    <div class="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
-      <h3 class="text-lg font-bold text-gray-800 mb-2">${isResub ? '재제출' : '최종 제출'} 확인</h3>
-      <p class="text-sm text-gray-600 mb-4">
-        ${isResub
-          ? '재제출 시 이전 평가가 덮어씌워집니다. 재제출은 1회만 가능하며 이후 수정 불가합니다.'
-          : '제출 후 1회에 한해 재제출이 가능합니다. 계속하시겠습니까?'}
-      </p>
-      <div class="bg-gray-50 rounded-lg p-3 mb-4 text-sm space-y-1">
-        <div class="flex justify-between"><span class="text-gray-500">기말발표 점수 배분</span><span class="font-medium">${pSum}점 (한도 ${PRES_MAX}점)</span></div>
-        <div class="flex justify-between"><span class="text-gray-500">참여 점수 배분</span><span class="font-medium">${rSum}점 (한도 ${partMax}점)</span></div>
-      </div>
-      <div class="flex gap-3">
-        <button id="modal-cancel" class="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 text-sm">취소</button>
-        <button id="modal-ok" class="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm">${isResub ? '재제출' : '제출'}</button>
-      </div>
+
+  const overlay = document.createElement('div');
+  overlay.id = 'submit-modal';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:1rem;';
+
+  const card = document.createElement('div');
+  card.style.cssText = 'background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);padding:1.5rem;max-width:360px;width:100%;';
+
+  const title = document.createElement('h3');
+  title.style.cssText = 'font-size:1.1rem;font-weight:700;color:#1f2937;margin:0 0 0.5rem;';
+  title.textContent = (isResub ? '재제출' : '최종 제출') + ' 확인';
+
+  const msg = document.createElement('p');
+  msg.style.cssText = 'font-size:0.875rem;color:#4b5563;margin:0 0 1rem;line-height:1.5;';
+  msg.textContent = isResub
+    ? '재제출 시 이전 평가가 덮어씌워집니다. 재제출은 1회만 가능하며 이후 수정 불가합니다.'
+    : '제출 후 1회에 한해 재제출이 가능합니다. 계속하시겠습니까?';
+
+  const summary = document.createElement('div');
+  summary.style.cssText = 'background:#f9fafb;border-radius:8px;padding:0.75rem;margin-bottom:1rem;font-size:0.875rem;';
+  summary.innerHTML = `
+    <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem;">
+      <span style="color:#6b7280;">기말발표 점수 배분</span>
+      <span style="font-weight:600;">${pSum}점 (한도 ${PRES_MAX}점)</span>
     </div>
-  </div>`;
-  document.body.insertAdjacentHTML('beforeend', html);
-  $('modal-cancel').onclick = () => $('submit-modal').remove();
-  $('modal-ok').onclick = () => { $('submit-modal').remove(); submitEval(isResub); };
+    <div style="display:flex;justify-content:space-between;">
+      <span style="color:#6b7280;">참여 점수 배분</span>
+      <span style="font-weight:600;">${rSum}점 (한도 ${partMax}점)</span>
+    </div>`;
+
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:0.75rem;';
+
+  const btnCancel = document.createElement('button');
+  btnCancel.style.cssText = 'flex:1;padding:0.6rem 0;border:1px solid #d1d5db;border-radius:8px;background:#fff;color:#374151;font-size:0.875rem;cursor:pointer;';
+  btnCancel.textContent = '취소';
+  btnCancel.onclick = () => overlay.remove();
+
+  const btnOk = document.createElement('button');
+  btnOk.style.cssText = 'flex:1;padding:0.6rem 0;border:none;border-radius:8px;background:#2563eb;color:#fff;font-size:0.875rem;font-weight:600;cursor:pointer;';
+  btnOk.textContent = isResub ? '재제출' : '제출';
+  btnOk.onclick = () => { overlay.remove(); submitEval(isResub); };
+
+  btnRow.appendChild(btnCancel);
+  btnRow.appendChild(btnOk);
+  card.appendChild(title);
+  card.appendChild(msg);
+  card.appendChild(summary);
+  card.appendChild(btnRow);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
 }
 
 // ── 렌더: 관리자 대시보드 ────────────────────────────────────────────────────
